@@ -27,10 +27,11 @@ use macella::Server;
 
 #[tokio::test]
 async fn ping() {
-    let _ = Server::new()
-        .get("/ping", |_| String::from("pong"))
-        .bind("0.0.0.0:8000")
-        .await;
+    let _ = Server::new().get("/ping", &pong).bind("0.0.0.0:8080").await;
+}
+
+async fn pong(_: String) -> String {
+    String::from("pong")
 }
 ```
 
@@ -60,5 +61,3 @@ async fn process(mut stream: TcpStream) -> () {
 }
 
 ```
-
-

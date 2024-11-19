@@ -8,12 +8,11 @@ use tokio::{
     net::TcpListener,
 };
 
-type WsHandler =
-    Arc<dyn Fn(tokio::net::TcpStream) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+type Handler<I, O> = Arc<dyn Fn(I) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
 
 pub struct Server {
-    http_handlers: HashMap<String, fn(String) -> String>,
-    ws_handlers: HashMap<String, WsHandler>,
+    http_handlers: HashMap<String, Handler<String, String>>,
+    ws_handlers: HashMap<String, Handler<tokio::net::TcpStream, ()>>,
 }
 
 impl Server {
@@ -23,12 +22,26 @@ impl Server {
             ws_handlers: HashMap::new(),
         }
     }
-    pub fn get(&mut self, route: &'static str, handler: fn(String) -> String) -> &mut Server {
-        self.http_handlers.insert(format!("GET{}", route), handler);
+    pub fn get<F, U>(&mut self, route: &'static str, handler: &'static F) -> &mut Server
+    where
+        F: Fn(String) -> U + Send + Sync + 'static,
+        U: Future<Output = String> + Send + 'static,
+    {
+        self.http_handlers.insert(
+            format!("GET{}", route),
+            Arc::new(move |a| Box::pin(handler(a))),
+        );
         self
     }
-    pub fn post(&mut self, route: &'static str, handler: fn(String) -> String) -> &mut Server {
-        self.http_handlers.insert(format!("POST{}", route), handler);
+    pub fn post<F, U>(&mut self, route: &'static str, handler: &'static F) -> &mut Server
+    where
+        F: Fn(String) -> U + Send + Sync + 'static,
+        U: Future<Output = String> + Send + 'static,
+    {
+        self.http_handlers.insert(
+            format!("POST{}", route),
+            Arc::new(move |a| Box::pin(handler(a))),
+        );
         self
     }
     pub fn ws<F, U>(&mut self, route: &'static str, handler: &'static F) -> &mut Server
@@ -109,8 +122,8 @@ fn ws_key_encode<'a>(sec_key: &'a str) -> Result<String, ()> {
 
 async fn process_socket(
     mut socket: tokio::net::TcpStream,
-    http_handlers: &Arc<HashMap<String, fn(String) -> String>>,
-    ws_handlers: &Arc<HashMap<String, WsHandler>>,
+    http_handlers: &Arc<HashMap<String, Handler<String, String>>>,
+    ws_handlers: &Arc<HashMap<String, Handler<tokio::net::TcpStream, ()>>>,
 ) -> Result<(), ()> {
     let mut buf = [0; 102400];
 
@@ -192,7 +205,7 @@ async fn process_socket(
         }
 
         let (status, content) = match http_handlers.get(format!("{}{}", method, path).as_str()) {
-            Some(handler) => ("200 OK", handler(body_raw)),
+            Some(handler) => ("200 OK", handler(body_raw).await),
             None => ("404 Not Found", String::new()),
         };
 
