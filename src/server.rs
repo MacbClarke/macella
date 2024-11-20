@@ -22,7 +22,7 @@ impl Server {
             ws_handlers: HashMap::new(),
         }
     }
-    pub fn get<F, U>(&mut self, route: &'static str, handler: &'static F) -> &mut Server
+    pub fn get<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
         F: Fn(String) -> U + Send + Sync + 'static,
         U: Future<Output = String> + Send + 'static,
@@ -33,7 +33,7 @@ impl Server {
         );
         self
     }
-    pub fn post<F, U>(&mut self, route: &'static str, handler: &'static F) -> &mut Server
+    pub fn post<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
         F: Fn(String) -> U + Send + Sync + 'static,
         U: Future<Output = String> + Send + 'static,
@@ -44,7 +44,7 @@ impl Server {
         );
         self
     }
-    pub fn ws<F, U>(&mut self, route: &'static str, handler: &'static F) -> &mut Server
+    pub fn ws<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
         F: Fn(tokio::net::TcpStream) -> U + Send + Sync + 'static,
         U: Future<Output = ()> + Send + 'static,
