@@ -2,17 +2,21 @@ use core::str;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use base64::Engine;
+use chrono::Local;
 use sha1::{Digest, Sha1};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 
-type Handler<I, O> = Arc<dyn Fn(I) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
+type HttpHandler<O> =
+    Arc<dyn Fn(String, String) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
+type WsHandler<O> =
+    Arc<dyn Fn(tokio::net::TcpStream) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
 
 pub struct Server {
-    http_handlers: HashMap<String, Handler<String, String>>,
-    ws_handlers: HashMap<String, Handler<tokio::net::TcpStream, ()>>,
+    http_handlers: HashMap<String, HttpHandler<String>>,
+    ws_handlers: HashMap<String, WsHandler<()>>,
 }
 
 impl Server {
@@ -24,23 +28,23 @@ impl Server {
     }
     pub fn get<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
-        F: Fn(String) -> U + Send + Sync + 'static,
+        F: Fn(String, String) -> U + Send + Sync + 'static,
         U: Future<Output = String> + Send + 'static,
     {
         self.http_handlers.insert(
             format!("GET{}", route),
-            Arc::new(move |a| Box::pin(handler(a))),
+            Arc::new(move |a, b| Box::pin(handler(a, b))),
         );
         self
     }
     pub fn post<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
-        F: Fn(String) -> U + Send + Sync + 'static,
+        F: Fn(String, String) -> U + Send + Sync + 'static,
         U: Future<Output = String> + Send + 'static,
     {
         self.http_handlers.insert(
             format!("POST{}", route),
-            Arc::new(move |a| Box::pin(handler(a))),
+            Arc::new(move |a, b| Box::pin(handler(a, b))),
         );
         self
     }
@@ -99,7 +103,7 @@ fn decode_req<'a>(
             let split = line.split_once(": ");
             headers.insert(split.unwrap().0, split.unwrap().1);
         } else {
-            body_raw.push_str(line.trim());
+            body_raw.push_str(line);
         }
     }
 
@@ -116,21 +120,17 @@ fn ws_key_encode<'a>(sec_key: &'a str) -> Result<String, ()> {
     let key = base64::engine::general_purpose::STANDARD.encode(hasher.finalize());
 
     Ok(key)
-
-    // Ok(format!("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: {key}\r\n\r\n"))
 }
 
 async fn process_socket(
     mut socket: tokio::net::TcpStream,
-    http_handlers: &Arc<HashMap<String, Handler<String, String>>>,
-    ws_handlers: &Arc<HashMap<String, Handler<tokio::net::TcpStream, ()>>>,
+    http_handlers: &Arc<HashMap<String, HttpHandler<String>>>,
+    ws_handlers: &Arc<HashMap<String, WsHandler<()>>>,
 ) -> Result<(), ()> {
     let mut buf = [0; 102400];
 
     loop {
         let n = socket.read(&mut buf).await.unwrap();
-
-        // println!("{:?}", &buf[..n]);
 
         if n == 0 {
             return Ok(());
@@ -138,10 +138,13 @@ async fn process_socket(
 
         let (leads, headers, body_raw) = decode_req(&buf, n)?;
 
+        #[cfg(debug_assertions)]
         println!("{}", leads);
 
+        #[cfg(debug_assertions)]
         println!("{:?}", headers);
 
+        #[cfg(debug_assertions)]
         println!("{}", body_raw);
 
         let leads_split: Vec<&str> = leads.splitn(3, ' ').collect();
@@ -150,28 +153,27 @@ async fn process_socket(
 
         let uri = leads_split[1];
 
-        // let protocol = leads_split[2];
-
         let uri_split: Vec<&str> = uri.splitn(2, '?').collect();
 
         let path = uri_split[0];
 
-        let query = uri_split.get(1);
+        let query = uri_split.get(1).cloned().unwrap_or("");
 
+        println!(
+            "{} {} {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            method,
+            uri
+        );
+
+        #[cfg(debug_assertions)]
         println!("{:?}", query);
 
+        #[cfg(debug_assertions)]
         println!("{}", method);
 
+        #[cfg(debug_assertions)]
         println!("{}", path);
-
-        // println!("{}", protocol);
-
-        // let content = match str::from_utf8(&buf) {
-        //     Ok(v) => v,
-        //     Err(e) => panic!("{}", e),
-        // };
-
-        // println!("{:?}", content);
 
         if headers.get("Connection") == Some(&"Upgrade")
             && headers.get("Upgrade") == Some(&"websocket")
@@ -205,22 +207,14 @@ async fn process_socket(
         }
 
         let (status, content) = match http_handlers.get(format!("{}{}", method, path).as_str()) {
-            Some(handler) => ("200 OK", handler(body_raw).await),
+            Some(handler) => ("200 OK", handler(query.to_string(), body_raw).await),
             None => ("404 Not Found", String::new()),
         };
 
-        // let status = "HTTP/1.1 200 OK";
-        // let content = fs::read_to_string("./index.html").unwrap();
-        // let content = json!({
-        //     "timestamp": chrono::Utc::now().timestamp(),
-        // })
-        // .to_string();
-        // let content = format!("{{\"data\":{:?},\"msg\":\"OK\",\"code\":200}}", rand_num);
         let content_length = content.len();
 
         let response = format!("HTTP/1.1 {status}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nContent-Length: {content_length}\r\nContent-Type: application/json\r\n\r\n{content}");
 
-        // stream.write_all(response.as_bytes()).await.unwrap();
         if let Err(e) = socket.write_all(response.as_bytes()).await {
             eprintln!("failed to write to socket; err = {:?}", e);
             return Err(());
