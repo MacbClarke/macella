@@ -142,12 +142,11 @@ impl Service {
 
                         let mut handshake = Response::new();
 
-                        handshake.set_status("101 Switching Protocols");
-                        handshake.insert_header("Connection", "Upgrade");
-                        handshake.insert_header("Upgrade", "websocket");
-                        handshake.insert_header("Sec-WebSocket-Accept", key);
-
-                        // let handshake = format!("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: {key}\r\n\r\n");
+                        handshake
+                            .status("101 Switching Protocols")
+                            .header("Connection", "Upgrade")
+                            .header("Upgrade", "websocket")
+                            .header("Sec-WebSocket-Accept", key);
 
                         if let Err(e) = socket.write_all(handshake.build().as_bytes()).await {
                             eprintln!("failed to write to socket; err = {:?}", e);
