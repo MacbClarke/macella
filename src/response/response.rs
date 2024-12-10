@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use super::Status;
+
 pub struct Response {
     status: String,
     headers: HashMap<String, String>,
@@ -47,7 +49,7 @@ impl Response {
 
     pub fn ok<T: AsRef<str>>(data: T) -> Self {
         Self {
-            status: String::from("200 OK"),
+            status: String::from(Status::OK),
             headers: HashMap::new(),
             body: data.as_ref().to_string(),
         }
@@ -55,7 +57,7 @@ impl Response {
 
     pub fn not_found() -> Self {
         Self {
-            status: String::from("404 Not Found"),
+            status: String::from(Status::NOT_FOUND),
             headers: HashMap::new(),
             body: String::new(),
         }
@@ -63,7 +65,7 @@ impl Response {
 
     pub fn err<T: AsRef<str>>(data: T) -> Self {
         Self {
-            status: String::from("500 Internal Server Error"),
+            status: String::from(Status::INTERNAL_SERVER_ERROR),
             headers: HashMap::new(),
             body: data.as_ref().to_string(),
         }

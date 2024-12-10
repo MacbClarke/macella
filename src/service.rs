@@ -7,7 +7,7 @@ use sha1::{Digest, Sha1};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
-    response::Response,
+    response::{Response, Status},
     server::{HttpHandler, WsHandler},
 };
 
@@ -143,7 +143,7 @@ impl Service {
                         let mut handshake = Response::new();
 
                         handshake
-                            .status("101 Switching Protocols")
+                            .status(Status::SWITCHING_PROTOCOLS)
                             .header("Connection", "Upgrade")
                             .header("Upgrade", "websocket")
                             .header("Sec-WebSocket-Accept", key);
@@ -158,7 +158,7 @@ impl Service {
                         return Ok(());
                     }
                     None => {
-                        if let Err(e) = socket.write_all(b"HTTP/1.1 404 Not Found").await {
+                        if let Err(e) = socket.write_all(Status::NOT_FOUND.as_bytes()).await {
                             eprintln!("failed to write to socket; err = {:?}", e);
                             return Err(());
                         }
