@@ -174,6 +174,7 @@ impl Service {
                 None => Response::not_found(),
             };
 
+            #[cfg(debug_assertions)]
             println!("{}", resp.build());
 
             if let Err(e) = socket.write_all(resp.build().as_bytes()).await {
