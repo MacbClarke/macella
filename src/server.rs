@@ -3,7 +3,7 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use tokio::net::TcpListener;
 
-use crate::service::Service;
+use crate::{response::Response, service::Service};
 
 pub type HttpHandler<O> =
     Arc<dyn Fn(String, String) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
@@ -11,7 +11,7 @@ pub type WsHandler<O> =
     Arc<dyn Fn(tokio::net::TcpStream) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
 
 pub struct Server {
-    http_handlers: HashMap<String, HttpHandler<String>>,
+    http_handlers: HashMap<String, HttpHandler<Response>>,
     ws_handlers: HashMap<String, WsHandler<()>>,
 }
 
@@ -25,7 +25,7 @@ impl Server {
     pub fn get<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
         F: Fn(String, String) -> U + Send + Sync + 'static,
-        U: Future<Output = String> + Send + 'static,
+        U: Future<Output = Response> + Send + 'static,
     {
         self.http_handlers.insert(
             format!("GET{}", route),
@@ -36,7 +36,7 @@ impl Server {
     pub fn post<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
         F: Fn(String, String) -> U + Send + Sync + 'static,
-        U: Future<Output = String> + Send + 'static,
+        U: Future<Output = Response> + Send + 'static,
     {
         self.http_handlers.insert(
             format!("POST{}", route),

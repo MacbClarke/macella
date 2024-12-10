@@ -23,15 +23,15 @@ It currently provides:
 Ping:
 
 ```rust
-use macella::Server;
+use macella::{Response, Server};
 
 #[tokio::test]
 async fn ping() {
     let _ = Server::new().get("/ping", pong).bind("0.0.0.0:8080").await;
 }
 
-async fn pong(_: String, _: String) -> String {
-    String::from("pong")
+async fn pong(_: String, _: String) -> Response {
+    Response::ok("pong")
 }
 ```
 
@@ -59,5 +59,4 @@ async fn process(mut stream: TcpStream) -> () {
         stream.write_all(&resp).await.unwrap();
     }
 }
-
 ```

@@ -6,7 +6,10 @@ use chrono::Local;
 use sha1::{Digest, Sha1};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::server::{HttpHandler, WsHandler};
+use crate::{
+    response::Response,
+    server::{HttpHandler, WsHandler},
+};
 
 struct SocketBuffer {
     buffer: [u8; 102400],
@@ -77,7 +80,7 @@ impl Service {
     pub async fn process_socket(
         &mut self,
         mut socket: tokio::net::TcpStream,
-        http_handlers: &Arc<HashMap<String, HttpHandler<String>>>,
+        http_handlers: &Arc<HashMap<String, HttpHandler<Response>>>,
         ws_handlers: &Arc<HashMap<String, WsHandler<()>>>,
     ) -> Result<(), ()> {
         loop {
@@ -137,9 +140,16 @@ impl Service {
 
                         let key = self.ws_key_encode(raw_key).unwrap();
 
-                        let handshake = format!("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: {key}\r\n\r\n");
+                        let mut handshake = Response::new();
 
-                        if let Err(e) = socket.write_all(handshake.as_bytes()).await {
+                        handshake.set_status("101 Switching Protocols");
+                        handshake.insert_header("Connection", "Upgrade");
+                        handshake.insert_header("Upgrade", "websocket");
+                        handshake.insert_header("Sec-WebSocket-Accept", key);
+
+                        // let handshake = format!("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: {key}\r\n\r\n");
+
+                        if let Err(e) = socket.write_all(handshake.build().as_bytes()).await {
                             eprintln!("failed to write to socket; err = {:?}", e);
                             return Err(());
                         }
@@ -159,17 +169,14 @@ impl Service {
                 return Ok(());
             }
 
-            let (status, content) = match http_handlers.get(format!("{}{}", method, path).as_str())
-            {
-                Some(handler) => ("200 OK", handler(query.to_string(), body_raw).await),
-                None => ("404 Not Found", String::new()),
+            let resp = match http_handlers.get(format!("{}{}", method, path).as_str()) {
+                Some(handler) => handler(query.to_string(), body_raw).await,
+                None => Response::not_found(),
             };
 
-            let content_length = content.len();
+            println!("{}", resp.build());
 
-            let response = format!("HTTP/1.1 {status}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nContent-Length: {content_length}\r\nContent-Type: application/json\r\n\r\n{content}");
-
-            if let Err(e) = socket.write_all(response.as_bytes()).await {
+            if let Err(e) = socket.write_all(resp.build().as_bytes()).await {
                 eprintln!("failed to write to socket; err = {:?}", e);
                 return Err(());
             }

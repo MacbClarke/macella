@@ -1,10 +1,10 @@
-use macella::Server;
+use macella::{Response, Server};
 
 #[tokio::test]
 async fn ping() {
-    let _ = Server::new().get("/ping", pong).bind("0.0.0.0:8888").await;
+    let _ = Server::new().get("/ping", pong).bind("0.0.0.0:8080").await;
 }
 
-async fn pong(_: String, _: String) -> String {
-    String::from("pong")
+async fn pong(_: String, _: String) -> Response {
+    Response::ok("pong")
 }
