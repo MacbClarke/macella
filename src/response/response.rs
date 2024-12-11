@@ -23,18 +23,18 @@ impl Response {
         format!("{lead}\r\n{headers}\r\n{}", self.body)
     }
 
-    pub fn status<T: AsRef<str>>(&mut self, status: T) -> &mut Self {
+    pub fn status<T: AsRef<str>>(mut self, status: T) -> Self {
         self.status = status.as_ref().to_string();
         self
     }
 
-    pub fn header<T: AsRef<str>, Y: AsRef<str>>(&mut self, key: T, value: Y) -> &mut Self {
+    pub fn header<T: AsRef<str>, Y: AsRef<str>>(mut self, key: T, value: Y) -> Self {
         self.headers
             .insert(key.as_ref().to_string(), value.as_ref().to_string());
         self
     }
 
-    pub fn body<T: AsRef<str>>(&mut self, body: T) -> &mut Self {
+    pub fn body<T: AsRef<str>>(mut self, body: T) -> Self {
         self.body = body.as_ref().to_string();
         self
     }

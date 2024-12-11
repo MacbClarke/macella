@@ -140,9 +140,7 @@ impl Service {
 
                         let key = self.ws_key_encode(raw_key).unwrap();
 
-                        let mut handshake = Response::new();
-
-                        handshake
+                        let handshake = Response::new()
                             .status(Status::SWITCHING_PROTOCOLS)
                             .header("Connection", "Upgrade")
                             .header("Upgrade", "websocket")
