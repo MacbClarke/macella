@@ -7,67 +7,30 @@ use sha1::{Digest, Sha1};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
-    response::{Response, Status},
+    request::Request,
+    responses::{Response, Status},
     server::{HttpHandler, WsHandler},
 };
 
-struct SocketBuffer {
-    buffer: [u8; 102400],
-    length: usize,
+pub struct SocketBuffer<'a> {
+    pub buffer: &'a [u8],
+    pub length: usize,
 }
 
-impl SocketBuffer {
-    pub fn new() -> SocketBuffer {
-        SocketBuffer {
-            buffer: [0; 102400],
-            length: 0,
-        }
+impl<'a> SocketBuffer<'a> {
+    pub fn new(buffer: &'a [u8], length: usize) -> SocketBuffer<'a> {
+        SocketBuffer { buffer, length }
     }
 }
 
-pub struct Service {
-    socket_buffer: SocketBuffer,
-}
+pub struct Service {}
 
 impl Service {
     pub fn new() -> Service {
-        Service {
-            socket_buffer: SocketBuffer::new(),
-        }
-    }
-    fn decode_req<'a>(&'a self) -> Result<(&'a str, HashMap<&'a str, &'a str>, String), ()> {
-        let req = str::from_utf8(&self.socket_buffer.buffer[..self.socket_buffer.length]).unwrap();
-
-        let mut headers: HashMap<&str, &str> = HashMap::new();
-
-        let mut body_raw: String = String::new();
-
-        let mut lines = req.lines();
-
-        let lead = lines.next();
-
-        let mut body_flag = false;
-
-        for line in lines {
-            if line.is_empty() {
-                body_flag = true;
-                continue;
-            }
-
-            if !body_flag {
-                let split = line.split_once(": ");
-                headers.insert(split.unwrap().0, split.unwrap().1);
-            } else {
-                body_raw.push_str(line);
-            }
-        }
-
-        let lead_str = lead.unwrap();
-
-        Ok((lead_str, headers, body_raw))
+        Service {}
     }
 
-    fn ws_key_encode<'a>(&self, sec_key: &'a str) -> Result<String, ()> {
+    fn ws_key_encode(&self, sec_key: &str) -> Result<String, ()> {
         let mut hasher = Sha1::new();
 
         hasher.update(format!("{sec_key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes());
@@ -83,60 +46,44 @@ impl Service {
         http_handlers: &Arc<HashMap<String, HttpHandler<Response>>>,
         ws_handlers: &Arc<HashMap<String, WsHandler<()>>>,
     ) -> Result<(), ()> {
-        loop {
-            let n = socket.read(&mut self.socket_buffer.buffer).await.unwrap();
+        let mut buffer: [u8; 102400] = [0; 102400];
 
-            self.socket_buffer.length = n;
+        loop {
+            let n = socket.read(&mut buffer).await.unwrap();
 
             if n == 0 {
                 return Ok(());
             }
 
-            let (leads, headers, body_raw) = self.decode_req()?;
+            let req = Request::from(SocketBuffer::new(&buffer, n));
+
+            let req_headers = req.header().unwrap_or(HashMap::new());
 
             #[cfg(debug_assertions)]
-            println!("{}", leads);
+            println!("{} {}", req.method(), req.path());
 
             #[cfg(debug_assertions)]
-            println!("{:?}", headers);
+            println!("{:?}", req.query());
 
             #[cfg(debug_assertions)]
-            println!("{}", body_raw);
+            println!("{:?}", req.header());
 
-            let leads_split: Vec<&str> = leads.splitn(3, ' ').collect();
-
-            let method = leads_split[0];
-
-            let uri = leads_split[1];
-
-            let uri_split: Vec<&str> = uri.splitn(2, '?').collect();
-
-            let path = uri_split[0];
-
-            let query = uri_split.get(1).cloned().unwrap_or("");
+            #[cfg(debug_assertions)]
+            println!("{:?}", req.body());
 
             println!(
                 "{} {} {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                method,
-                uri
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                req.method(),
+                req.path()
             );
 
-            #[cfg(debug_assertions)]
-            println!("{:?}", query);
-
-            #[cfg(debug_assertions)]
-            println!("{}", method);
-
-            #[cfg(debug_assertions)]
-            println!("{}", path);
-
-            if headers.get("Connection") == Some(&"Upgrade")
-                && headers.get("Upgrade") == Some(&"websocket")
+            if req_headers.get("Connection") == Some(&"Upgrade")
+                && req_headers.get("Upgrade") == Some(&"websocket")
             {
-                match ws_handlers.get(format!("WS{}", path).as_str()) {
+                match ws_handlers.get(format!("WS{}", req.path()).as_str()) {
                     Some(handler) => {
-                        let raw_key = headers.get("Sec-WebSocket-Key").unwrap();
+                        let raw_key = req_headers.get("Sec-WebSocket-Key").unwrap();
 
                         let key = self.ws_key_encode(raw_key).unwrap();
 
@@ -166,8 +113,10 @@ impl Service {
                 return Ok(());
             }
 
-            let resp = match http_handlers.get(format!("{}{}", method, path).as_str()) {
-                Some(handler) => handler(query.to_string(), body_raw).await,
+            let connection_close_flag = req_headers.get("Connection") == Some(&"close");
+
+            let resp = match http_handlers.get(format!("{}{}", req.method(), req.path()).as_str()) {
+                Some(handler) => handler(req).await,
                 None => Response::not_found(),
             };
 
@@ -179,7 +128,7 @@ impl Service {
                 return Err(());
             }
 
-            if headers.get("Connection") == Some(&"close") {
+            if connection_close_flag {
                 return Ok(());
             }
         }

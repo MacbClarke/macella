@@ -3,10 +3,10 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use tokio::net::TcpListener;
 
-use crate::{response::Response, service::Service};
+use crate::{request::Request, responses::Response, service::Service};
 
 pub type HttpHandler<O> =
-    Arc<dyn Fn(String, String) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
+    Arc<dyn Fn(Request) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
 pub type WsHandler<O> =
     Arc<dyn Fn(tokio::net::TcpStream) -> Pin<Box<dyn Future<Output = O> + Send>> + Send + Sync>;
 
@@ -24,23 +24,23 @@ impl Server {
     }
     pub fn get<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
-        F: Fn(String, String) -> U + Send + Sync + 'static,
+        F: Fn(Request) -> U + Send + Sync + 'static,
         U: Future<Output = Response> + Send + 'static,
     {
         self.http_handlers.insert(
             format!("GET{}", route),
-            Arc::new(move |a, b| Box::pin(handler(a, b))),
+            Arc::new(move |a| Box::pin(handler(a))),
         );
         self
     }
     pub fn post<F, U>(&mut self, route: &'static str, handler: F) -> &mut Server
     where
-        F: Fn(String, String) -> U + Send + Sync + 'static,
+        F: Fn(Request) -> U + Send + Sync + 'static,
         U: Future<Output = Response> + Send + 'static,
     {
         self.http_handlers.insert(
             format!("POST{}", route),
-            Arc::new(move |a, b| Box::pin(handler(a, b))),
+            Arc::new(move |a| Box::pin(handler(a))),
         );
         self
     }
