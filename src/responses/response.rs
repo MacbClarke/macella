@@ -8,6 +8,12 @@ pub struct Response {
     body: String,
 }
 
+impl Default for Response {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Response {
     pub fn build(&self) -> String {
         let lead = format!("HTTP/1.1 {}", self.status);

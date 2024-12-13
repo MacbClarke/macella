@@ -9,7 +9,7 @@ async fn echo() {
     let _ = Server::new().ws("/ws", process).bind("0.0.0.0:8080").await;
 }
 
-async fn process(mut stream: TcpStream) -> () {
+async fn process(mut stream: TcpStream) {
     let mut buf = [0; 1024];
 
     loop {

@@ -15,6 +15,12 @@ pub struct Server {
     ws_handlers: HashMap<String, WsHandler<()>>,
 }
 
+impl Default for Server {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Server {
     pub fn new() -> Server {
         Server {
