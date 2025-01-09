@@ -9,5 +9,8 @@ async fn hello() {
 }
 
 async fn world(req: Request) -> Response {
-    Response::ok(format!("hello {}", req.body().unwrap_or("")))
+    Response::ok(format!(
+        "hello {}",
+        req.body_utf8().unwrap_or(Ok("")).unwrap()
+    ))
 }

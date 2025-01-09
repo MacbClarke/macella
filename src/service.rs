@@ -69,7 +69,7 @@ impl Service {
             println!("{:?}", req.header());
 
             #[cfg(debug_assertions)]
-            println!("{:?}", req.body());
+            println!("{:?}", req.body_utf8());
 
             println!(
                 "{} {} {}",

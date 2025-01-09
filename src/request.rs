@@ -1,5 +1,5 @@
 use core::{panic, str};
-use std::collections::HashMap;
+use std::{collections::HashMap, str::Utf8Error};
 
 use crate::service::SocketBuffer;
 
@@ -8,7 +8,7 @@ pub struct Request {
     method: String,
     path: String,
     query: Option<String>,
-    body: Option<String>,
+    body: Option<Vec<u8>>,
 }
 
 impl Request {
@@ -60,20 +60,37 @@ impl Request {
         Some(map)
     }
 
-    pub fn body(&self) -> Option<&str> {
+    pub fn body(&self) -> Option<&[u8]> {
         self.body.as_deref()
+    }
+
+    pub fn body_utf8(&self) -> Option<Result<&str, Utf8Error>> {
+        self.body.as_ref()?;
+
+        let b = self.body.as_ref().unwrap();
+
+        Some(str::from_utf8(b))
     }
 }
 
 impl<'a> From<SocketBuffer<'a>> for Request {
     fn from(value: SocketBuffer<'a>) -> Self {
-        let str = match str::from_utf8(&value.buffer[..value.length]) {
+        let buffer = Vec::from(&value.buffer[..value.length]);
+
+        let split_index = buffer
+            .windows(4)
+            .position(|w| w[0] == 13 && w[1] == 10 && w[2] == 13 && w[3] == 10)
+            .unwrap();
+
+        let (leads, _) = buffer.split_at(split_index);
+        let (_, body) = buffer.split_at(split_index + 4);
+
+        let str = match str::from_utf8(leads) {
             Ok(s) => s,
             Err(e) => panic!("{}", e),
         };
 
-        let (request_line, headers_and_body) = str.split_once("\r\n").unwrap();
-        let (headers, body) = headers_and_body.split_once("\r\n\r\n").unwrap();
+        let (request_line, headers) = str.split_once("\r\n").unwrap();
 
         let request_parts: Vec<&str> = request_line.split_whitespace().collect();
         if request_parts.len() != 3 {
@@ -90,9 +107,9 @@ impl<'a> From<SocketBuffer<'a>> for Request {
             option_headers = Some(headers.to_string());
         }
 
-        let mut option_body: Option<String> = None;
+        let mut option_body: Option<Vec<u8>> = None;
         if !body.is_empty() {
-            option_body = Some(body.to_string());
+            option_body = Some(body.to_vec());
         }
 
         Self {
