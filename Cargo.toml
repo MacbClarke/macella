@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.39.2", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 sha1 = "0.10"
 base64 = "0.21"
 chrono = "0.4.38"
