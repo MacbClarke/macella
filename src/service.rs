@@ -2,7 +2,7 @@ use core::str;
 use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
-use chrono::Local;
+use log::{debug, error, info, warn};
 use sha1::{Digest, Sha1};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -49,7 +49,13 @@ impl Service {
         let mut buffer: [u8; 102400] = [0; 102400];
 
         loop {
-            let n = socket.read(&mut buffer).await.unwrap();
+            let n = match socket.read(&mut buffer).await {
+                Ok(n) => n,
+                Err(e) => {
+                    warn!("{:?}", e);
+                    0
+                }
+            };
 
             if n == 0 {
                 return Ok(());
@@ -59,24 +65,15 @@ impl Service {
 
             let req_headers = req.header().unwrap_or(HashMap::new());
 
-            #[cfg(debug_assertions)]
-            println!("{} {}", req.method(), req.path());
+            debug!("{} {}", req.method(), req.path());
 
-            #[cfg(debug_assertions)]
-            println!("{:?}", req.query());
+            debug!("{:?}", req.query());
 
-            #[cfg(debug_assertions)]
-            println!("{:?}", req.header());
+            debug!("{:?}", req.header());
 
-            #[cfg(debug_assertions)]
-            println!("{:?}", req.body_utf8());
+            debug!("{:?}", req.body_utf8());
 
-            println!(
-                "{} {} {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S"),
-                req.method(),
-                req.path()
-            );
+            info!("{} {}", req.method(), req.path());
 
             if req_headers.get("Connection") == Some(&"Upgrade")
                 && req_headers.get("Upgrade") == Some(&"websocket")
@@ -94,7 +91,7 @@ impl Service {
                             .header("Sec-WebSocket-Accept", key);
 
                         if let Err(e) = socket.write_all(handshake.build().as_bytes()).await {
-                            eprintln!("failed to write to socket; err = {:?}", e);
+                            error!("failed to write to socket; err = {:?}", e);
                             return Err(());
                         }
 
@@ -104,7 +101,7 @@ impl Service {
                     }
                     None => {
                         if let Err(e) = socket.write_all(Status::NOT_FOUND.as_bytes()).await {
-                            eprintln!("failed to write to socket; err = {:?}", e);
+                            error!("failed to write to socket; err = {:?}", e);
                             return Err(());
                         }
                     }
@@ -120,11 +117,10 @@ impl Service {
                 None => Response::not_found(),
             };
 
-            #[cfg(debug_assertions)]
-            println!("{}", resp.build());
+            debug!("{}", resp.build());
 
             if let Err(e) = socket.write_all(resp.build().as_bytes()).await {
-                eprintln!("failed to write to socket; err = {:?}", e);
+                error!("failed to write to socket; err = {:?}", e);
                 return Err(());
             }
 

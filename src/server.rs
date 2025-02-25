@@ -1,6 +1,7 @@
 use core::str;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
+use log::{error, info};
 use tokio::net::TcpListener;
 
 use crate::{request::Request, responses::Response, service::Service};
@@ -63,6 +64,9 @@ impl Server {
     }
     pub async fn bind(&self, addr: &str) -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(addr).await?;
+
+        info!("Listening on {addr}");
+
         let http_handlers = Arc::new(self.http_handlers.clone());
         let ws_handlers = Arc::new(self.ws_handlers.clone());
 
@@ -75,7 +79,7 @@ impl Server {
                     .process_socket(socket, &http_handlers, &ws_handlers)
                     .await
                 {
-                    eprintln!("Error processing socket: {:?}", e)
+                    error!("Error processing socket: {:?}", e)
                 }
             });
         }
