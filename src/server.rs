@@ -63,7 +63,13 @@ impl Server {
         self
     }
     pub async fn bind(&self, addr: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let listener = TcpListener::bind(addr).await?;
+        let listener = match TcpListener::bind(addr).await {
+            Ok(n) => n,
+            Err(e) => {
+                error!("{addr} already in use");
+                return Err(Box::new(e));
+            }
+        };
 
         info!("Listening on {addr}");
 

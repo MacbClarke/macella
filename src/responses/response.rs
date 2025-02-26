@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use chrono::Utc;
+
 use super::Status;
 
 pub struct Response {
@@ -24,6 +26,10 @@ impl Response {
             headers += &format!("{}: {}\r\n", k, v);
         }
 
+        headers += &format!(
+            "Date: {}\r\n",
+            Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+        );
         headers += &format!("Content-Length: {}\r\n", self.body.len());
 
         format!("{lead}\r\n{headers}\r\n{}", self.body)
