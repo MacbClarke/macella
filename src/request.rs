@@ -1,7 +1,12 @@
-use core::{panic, str};
+use core::str;
 use std::{collections::HashMap, str::Utf8Error};
 
-use crate::service::SocketBuffer;
+// Define potential errors during request parsing
+#[derive(Debug, PartialEq)]
+pub enum ParseError {
+    Incomplete,
+    InvalidFormat(String), // Include a reason for the invalid format
+}
 
 pub struct Request {
     header: Option<String>,
@@ -70,54 +75,98 @@ impl Request {
         let b = self.body.as_ref().unwrap();
 
         Some(str::from_utf8(b))
+        Some(str::from_utf8(b))
     }
-}
 
-impl<'a> From<SocketBuffer<'a>> for Request {
-    fn from(value: SocketBuffer<'a>) -> Self {
-        let buffer = Vec::from(&value.buffer[..value.length]);
-
-        let split_index = buffer
+    // New function to parse a request from a buffer slice
+    // Returns the parsed request and the number of bytes consumed from the buffer
+    pub fn parse(buffer: &[u8]) -> Result<(Self, usize), ParseError> {
+        // Find the end of the headers (\r\n\r\n)
+        let header_end_pos = buffer
             .windows(4)
-            .position(|w| w[0] == 13 && w[1] == 10 && w[2] == 13 && w[3] == 10)
-            .unwrap();
+            .position(|w| w == b"\r\n\r\n")
+            .ok_or(ParseError::Incomplete)?;
 
-        let (leads, _) = buffer.split_at(split_index);
-        let (_, body) = buffer.split_at(split_index + 4);
+        let header_data = &buffer[..header_end_pos];
+        let header_str = str::from_utf8(header_data)
+            .map_err(|e| ParseError::InvalidFormat(format!("Invalid UTF-8 in headers: {}", e)))?;
 
-        let str = match str::from_utf8(leads) {
-            Ok(s) => s,
-            Err(e) => panic!("{}", e),
-        };
+        let (request_line, headers_part) = header_str
+            .split_once("\r\n")
+            .ok_or_else(|| ParseError::InvalidFormat("Missing request line".to_string()))?;
 
-        let (request_line, headers) = str.split_once("\r\n").unwrap();
-
+        // Parse Request Line
         let request_parts: Vec<&str> = request_line.split_whitespace().collect();
         if request_parts.len() != 3 {
-            panic!("Invalid request line format");
+            return Err(ParseError::InvalidFormat(format!(
+                "Invalid request line format: {}",
+                request_line
+            )));
         }
+        let method = request_parts[0].to_string();
+        let full_path = request_parts[1];
+        // TODO: Validate HTTP version request_parts[2] if needed
 
-        let (path, query) = match request_parts[1].split_once("?") {
-            Some((p, q)) => (p, Some(q.to_string())),
-            None => (request_parts[1], None),
+        // Parse Path and Query
+        let (path, query) = match full_path.split_once("?") {
+            Some((p, q)) => (p.to_string(), Some(q.to_string())),
+            None => (full_path.to_string(), None),
         };
 
-        let mut option_headers: Option<String> = None;
-        if !headers.is_empty() {
-            option_headers = Some(headers.to_string());
+        // Store raw headers string
+        let option_headers = if headers_part.is_empty() {
+            None
+        } else {
+            Some(headers_part.to_string())
+        };
+
+        // --- Body Parsing ---
+        let headers_map = Self::parse_headers_str(headers_part);
+        let content_length = headers_map
+            .get("Content-Length")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0);
+
+        let header_size = header_end_pos + 4; // Include the \r\n\r\n
+        let total_request_size = header_size + content_length;
+
+        // Check if the buffer contains the complete request (headers + body)
+        if buffer.len() < total_request_size {
+            return Err(ParseError::Incomplete);
         }
 
-        let mut option_body: Option<Vec<u8>> = None;
-        if !body.is_empty() {
-            option_body = Some(body.to_vec());
-        }
+        let body_data = &buffer[header_size..total_request_size];
 
-        Self {
-            header: option_headers,
-            method: request_parts[0].to_string(),
-            path: path.to_string(),
-            query,
-            body: option_body,
+        let option_body = if body_data.is_empty() {
+            None
+        } else {
+            Some(body_data.to_vec())
+        };
+
+        Ok((
+            Self {
+                header: option_headers,
+                method,
+                path,
+                query,
+                body: option_body,
+            },
+            total_request_size, // Return the total bytes consumed by this request
+        ))
+    }
+
+    // Helper function to parse header string into a HashMap (used internally by parse)
+    // Note: This is similar to the existing `header` method but operates on a string slice.
+    fn parse_headers_str(headers_part: &str) -> HashMap<&str, &str> {
+        let mut map: HashMap<&str, &str> = HashMap::new();
+        for line in headers_part.split("\r\n") {
+            if let Some((k, v)) = line.split_once(": ") {
+                map.insert(k.trim(), v.trim());
+            }
         }
+        map
     }
 }
+
+// Remove the old From<SocketBuffer> implementation
+// impl<'a> From<SocketBuffer<'a>> for Request { ... }
