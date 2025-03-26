@@ -75,7 +75,6 @@ impl Request {
         let b = self.body.as_ref().unwrap();
 
         Some(str::from_utf8(b))
-        Some(str::from_utf8(b))
     }
 
     // New function to parse a request from a buffer slice
